@@ -9,7 +9,6 @@ const Domain = require('./Domain');
 const hubspotClient = new hubspot.Client({ accessToken: '' });
 const propertyPrefix = 'hubspot__';
 let expirationDate;
-let contactMap = {};
 
 const generateLastModifiedDateFilter = (date, nowDate, propertyName = 'hs_lastmodifieddate') => {
   const lastModifiedDateFilter = date ?
@@ -66,12 +65,6 @@ const processCompanies = async (domain, hubId, q) => {
   const lastPulledDate = new Date(account.lastPulledDates.companies || account.lastPulledDate);
   const now = new Date();
 
-  const hubspotCompanyProperties = (await hubspotClient.crm.properties.coreApi.getAll('company', false))?.results;
-  const hubspotCustomCompanyProperties =
-    hubspotCompanyProperties
-      .filter(property => !property.hubspotDefined && property.formField && property.groupName !== 'sales_properties')
-      .map(property => property.name);
-
   let hasMore = true;
   const offsetObject = {};
   const limit = 100;
@@ -90,8 +83,7 @@ const processCompanies = async (domain, hubId, q) => {
         'description',
         'annualrevenue',
         'numberofemployees',
-        'hs_lead_status',
-        ...hubspotCustomCompanyProperties
+        'hs_lead_status'
       ],
       limit,
       after: offsetObject.after
@@ -139,12 +131,7 @@ const processCompanies = async (domain, hubId, q) => {
             company_number_of_employees: parseInt(company.properties.numberofemployees),
             company_annual_revenue: parseInt(company.properties.annualrevenue),
             company_country: company.properties.country,
-            company_description: company.properties.description,
-            ...Object.fromEntries(
-              hubspotCustomCompanyProperties
-                .filter(property => company.properties[property])
-                .map(property => [propertyPrefix + normalizePropertyName(property) + '__custom', company.properties[property]])
-            )
+            company_description: company.properties.description
           }
         }]
       };
@@ -174,35 +161,12 @@ const processCompanies = async (domain, hubId, q) => {
 };
 
 /**
- * Get single contact by contact id
- */
-const getContactById = async contactId => {
-  if (!contactMap[contactId]) {
-    const contactResult = (await hubspotClient.crm.contacts.basicApi.getById(contactId, ['email'], ['company']));
-
-    contactMap[contactId] = {
-      email: contactResult.properties.email,
-      company_id: contactResult.associations?.companies?.results?.[0]?.id
-    };
-  }
-
-  return contactMap[contactId];
-};
-
-/**
  * Get recently modified contacts as 100 contacts per page
  */
 const processContacts = async (domain, hubId, q) => {
   const account = domain.integrations.hubspot.accounts.find(account => account.hubId === hubId);
   const lastPulledDate = new Date(account.lastPulledDates.contacts || account.lastPulledDate);
   const now = new Date();
-
-  const hubspotContactProperties = (await hubspotClient.crm.properties.coreApi.getAll('contact', false))?.results;
-
-  const hubspotCustomContactProperties =
-    hubspotContactProperties
-      .filter(property => !property.hubspotDefined && property.formField && property.groupName !== 'sales_properties')
-      .map(property => property.name);
 
   let hasMore = true;
   const offsetObject = {};
@@ -222,8 +186,7 @@ const processContacts = async (domain, hubId, q) => {
         'hubspotscore',
         'hs_lead_status',
         'hs_analytics_source',
-        'hs_latest_source',
-        ...hubspotCustomContactProperties
+        'hs_latest_source'
       ],
       limit,
       after: offsetObject.after
@@ -274,29 +237,16 @@ const processContacts = async (domain, hubId, q) => {
 
       const companyId = companyAssociations[contact.id];
 
-      contactMap[contact.id] = {
-        email: contact.properties.email,
-        company: companyId
-      };
-
       const isCreated = new Date(contact.createdAt) > lastPulledDate;
 
       const userProperties = {
-        ...(domain.hasAnotherCRM ?
-          {} :
-          { company_id: companyId }
-        ),
+        company_id: companyId,
         contact_name: ((contact.properties.firstname || '') + ' ' + (contact.properties.lastname || '')).trim(),
         contact_title: contact.properties.jobtitle,
         contact_source: contact.properties.hs_analytics_source,
         [propertyPrefix + 'contact_id']: contact.properties.hs_object_id,
         [propertyPrefix + 'contact_status']: contact.properties.hs_lead_status,
-        [propertyPrefix + 'contact_score']: parseInt(contact.properties.hubspotscore) || 0,
-        ...Object.fromEntries(
-          hubspotCustomContactProperties
-            .filter(property => contact.properties[property])
-            .map(property => [propertyPrefix + normalizePropertyName(property) + '__custom', contact.properties[property]])
-        )
+        [propertyPrefix + 'contact_score']: parseInt(contact.properties.hubspotscore) || 0
       };
 
       const actionTemplate = {
@@ -363,8 +313,6 @@ const pullDataFromHubspot = async () => {
 
     account.lastPulledDate = account.lastPulledDate || new Date(0);
     if (!account.lastPulledDates) account.lastPulledDates = {};
-
-    contactMap = {};
 
     try {
       await refreshAccessToken(domain, account.hubId);
