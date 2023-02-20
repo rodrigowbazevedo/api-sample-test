@@ -1,9 +1,8 @@
 const hubspot = require('@hubspot/api-client');
-const moment = require('moment');
 const { queue } = require('async');
 const _ = require('lodash');
 
-const { filterNullValuesFromObject, normalizePropertyName, goal } = require('./utils');
+const { filterNullValuesFromObject, goal } = require('./utils');
 const Domain = require('./Domain');
 
 const hubspotClient = new hubspot.Client({ accessToken: '' });
@@ -62,7 +61,7 @@ const refreshAccessToken = async (domain, hubId, tryCount) => {
  */
 const processCompanies = async (domain, hubId, q) => {
   const account = domain.integrations.hubspot.accounts.find(account => account.hubId === hubId);
-  const lastPulledDate = new Date(account.lastPulledDates.companies || account.lastPulledDate);
+  const lastPulledDate = new Date(account.lastPulledDates.companies);
   const now = new Date();
 
   let hasMore = true;
@@ -119,21 +118,7 @@ const processCompanies = async (domain, hubId, q) => {
         includeInAnalytics: 0,
         userId: company.id,
         identity: company.id,
-        userProperties: { company_id: company.id },
-        shared: [{
-          key: 'company_id',
-          value: company.id,
-          properties: {
-            company_id: company.id,
-            company_name: company.properties.name?.trim(),
-            company_domain: company.properties.domain?.replace(/https:\/\/|http:\/\/|www./g, ''),
-            company_industry: company.properties.industry,
-            company_number_of_employees: parseInt(company.properties.numberofemployees),
-            company_annual_revenue: parseInt(company.properties.annualrevenue),
-            company_country: company.properties.country,
-            company_description: company.properties.description
-          }
-        }]
+        userProperties: { company_id: company.id }
       };
 
       const isCreated = !lastPulledDate || (new Date(company.createdAt) > lastPulledDate);
@@ -165,7 +150,7 @@ const processCompanies = async (domain, hubId, q) => {
  */
 const processContacts = async (domain, hubId, q) => {
   const account = domain.integrations.hubspot.accounts.find(account => account.hubId === hubId);
-  const lastPulledDate = new Date(account.lastPulledDates.contacts || account.lastPulledDate);
+  const lastPulledDate = new Date(account.lastPulledDates.contacts);
   const now = new Date();
 
   let hasMore = true;
@@ -219,11 +204,11 @@ const processContacts = async (domain, hubId, q) => {
 
     // contact to company association
     const contactsToAssociate = contactIds;
-    const companyAssociationsResults = await (await hubspotClient.apiRequest({
+    const companyAssociationsResults = (await (await hubspotClient.apiRequest({
       method: 'post',
       path: '/crm/v3/associations/CONTACTS/COMPANIES/batch/read',
       body: { inputs: contactsToAssociate.map(contactId => ({ id: contactId })) }
-    })).json()?.results || [];
+    })).json())?.results || [];
 
     const companyAssociations = Object.fromEntries(companyAssociationsResults.map(a => {
       if (a.from) {
@@ -310,9 +295,6 @@ const pullDataFromHubspot = async () => {
 
   for (const account of domain.integrations.hubspot.accounts) {
     console.log('start processing account');
-
-    account.lastPulledDate = account.lastPulledDate || new Date(0);
-    if (!account.lastPulledDates) account.lastPulledDates = {};
 
     try {
       await refreshAccessToken(domain, account.hubId);
