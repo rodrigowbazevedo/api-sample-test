@@ -116,9 +116,11 @@ const processCompanies = async (domain, hubId, q) => {
 
       const actionTemplate = {
         includeInAnalytics: 0,
-        userId: company.id,
-        identity: company.id,
-        userProperties: { company_id: company.id }
+        companyProperties: {
+          company_id: company.id,
+          company_domain: company.properties.domain,
+          company_industry: company.properties.industry
+        }
       };
 
       const isCreated = !lastPulledDate || (new Date(company.createdAt) > lastPulledDate);
@@ -229,14 +231,12 @@ const processContacts = async (domain, hubId, q) => {
         contact_name: ((contact.properties.firstname || '') + ' ' + (contact.properties.lastname || '')).trim(),
         contact_title: contact.properties.jobtitle,
         contact_source: contact.properties.hs_analytics_source,
-        [propertyPrefix + 'contact_id']: contact.properties.hs_object_id,
-        [propertyPrefix + 'contact_status']: contact.properties.hs_lead_status,
-        [propertyPrefix + 'contact_score']: parseInt(contact.properties.hubspotscore) || 0
+        contact_status: contact.properties.hs_lead_status,
+        contact_score: parseInt(contact.properties.hubspotscore) || 0
       };
 
       const actionTemplate = {
         includeInAnalytics: 0,
-        userId: contact.id,
         identity: contact.properties.email,
         userProperties: filterNullValuesFromObject(userProperties)
       };
@@ -267,7 +267,7 @@ const createQueue = (domain, actions) => queue(async (action, callback) => {
   actions.push(action);
 
   if (actions.length > 2000) {
-    console.log('inserting to HubSpot', { apiKey: domain.apiKey, count: actions.length });
+    console.log('inserting actions to database', { apiKey: domain.apiKey, count: actions.length });
 
     const copyOfActions = _.cloneDeep(actions);
     actions.splice(0, actions.length);
